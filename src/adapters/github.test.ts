@@ -58,8 +58,9 @@ describe('uploadFile()', () => {
     const adapter = createGitHubAdapter(OPTS)
     const result = await adapter.uploadFile('notes/a.json', '{"text":"hello"}')
     expect(result).toEqual({ hash: 'new-sha' })
-    expect(capturedBody?.content).toBe(btoa('{"text":"hello"}'))
-    expect(capturedBody?.branch).toBe('main')
+    const body = capturedBody as unknown as Record<string, unknown>
+    expect(body.content).toBe(btoa('{"text":"hello"}'))
+    expect(body.branch).toBe('main')
   })
 })
 
