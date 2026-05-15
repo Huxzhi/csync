@@ -74,7 +74,8 @@ export function createSyncer(config: SyncerConfig) {
       if (op === 'upload') {
         const data = await local.getRecordContent(path)
         if (!data) throw new Error(`No content for ${path}`)
-        const { hash } = await remote.uploadFile(path, JSON.stringify(data))
+        const currentHash = lastLocalMap.get(path)?.hash || undefined
+        const { hash } = await remote.uploadFile(path, data, currentHash)
         const localMeta = lastLocalMap.get(path)
         const updatedMeta: SyncMetadata = {
           path,
@@ -82,7 +83,7 @@ export function createSyncer(config: SyncerConfig) {
           updatedAt: localMeta?.updatedAt ?? Date.now(),
           tags: localMeta?.tags,
         }
-        await local.upsertRecord(path, data, { hash, updatedAt: updatedMeta.updatedAt, tags: updatedMeta.tags })
+        await local.upsertRecord(data, updatedMeta)
         return updatedMeta
       }
 
@@ -92,7 +93,7 @@ export function createSyncer(config: SyncerConfig) {
         const hash = remoteMeta?.hash ?? ''
         const updatedAt = remoteMeta?.updatedAt ?? Date.now()
         const tags = remoteMeta?.tags
-        await local.upsertRecord(path, data, { hash, updatedAt, tags })
+        await local.upsertRecord(data, { path, hash, updatedAt, tags })
         return { path, hash, updatedAt, tags }
       }
 

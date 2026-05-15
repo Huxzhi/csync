@@ -56,7 +56,8 @@ describe('uploadFile()', () => {
       return { status: 404, ok: false }
     })
     const adapter = createGitHubAdapter(OPTS)
-    const result = await adapter.uploadFile('notes/a.json', '{"text":"hello"}')
+    const buf = new TextEncoder().encode('{"text":"hello"}').buffer as ArrayBuffer
+    const result = await adapter.uploadFile('notes/a.json', buf)
     expect(result).toEqual({ hash: 'new-sha' })
     const body = capturedBody as unknown as Record<string, unknown>
     expect(body.content).toBe(btoa('{"text":"hello"}'))
@@ -72,7 +73,7 @@ describe('downloadFile()', () => {
     }))
     const adapter = createGitHubAdapter(OPTS)
     const data = await adapter.downloadFile('notes/a.json')
-    expect(data).toEqual({ text: 'hello' })
+    expect(new TextDecoder().decode(data)).toBe(JSON.stringify({ text: 'hello' }))
   })
 })
 

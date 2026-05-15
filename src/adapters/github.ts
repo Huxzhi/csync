@@ -65,20 +65,28 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): RemoteReposi
         }))
     },
 
-    async uploadFile(path: string, content: string): Promise<{ hash: string }> {
+    async uploadFile(path: string, content: ArrayBuffer, currentHash?: string): Promise<{ hash: string }> {
       const apiPath = remotePath(path)
 
       let existingSha: string | undefined
-      try {
-        const existing = await apiFetch<{ sha: string }>(`contents/${apiPath}`)
-        existingSha = existing.sha
-      } catch {
-        // File does not exist yet — new file, no SHA needed
+      if (currentHash) {
+        existingSha = currentHash
+      } else {
+        try {
+          const existing = await apiFetch<{ sha: string }>(`contents/${apiPath}`)
+          existingSha = existing.sha
+        } catch {
+          // File does not exist yet — new file, no SHA needed
+        }
       }
+
+      const bytes = new Uint8Array(content)
+      let binary = ''
+      for (const b of bytes) binary += String.fromCharCode(b)
 
       const body: Record<string, unknown> = {
         message: `sync: update ${path}`,
-        content: btoa(content),
+        content: btoa(binary),
         branch,
       }
       if (existingSha !== undefined) body.sha = existingSha
@@ -91,12 +99,14 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): RemoteReposi
       return { hash: result.content.sha }
     },
 
-    async downloadFile(path: string): Promise<Record<string, unknown>> {
+    async downloadFile(path: string): Promise<ArrayBuffer> {
       const data = await apiFetch<{ content: string; encoding: string }>(
         `contents/${remotePath(path)}`,
       )
-      const decoded = atob(data.content.replace(/\n/g, ''))
-      return JSON.parse(decoded) as Record<string, unknown>
+      const binary = atob(data.content.replace(/\n/g, ''))
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      return bytes.buffer
     },
 
     async deleteFile(path: string): Promise<void> {
