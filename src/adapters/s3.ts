@@ -15,13 +15,15 @@ function toHex(buffer: ArrayBuffer): string {
     .join('')
 }
 
-async function sha256(data: ArrayBuffer | Uint8Array | string): Promise<string> {
-  const bytes =
-    typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data)
+async function sha256(data: ArrayBuffer | string): Promise<string> {
+  const bytes: ArrayBuffer =
+    typeof data === 'string'
+      ? (new TextEncoder().encode(data).buffer as ArrayBuffer)
+      : data
   return toHex(await crypto.subtle.digest('SHA-256', bytes))
 }
 
-async function hmac(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayBuffer> {
+async function hmac(key: ArrayBuffer, data: string): Promise<ArrayBuffer> {
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
     key,
@@ -29,7 +31,11 @@ async function hmac(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayB
     false,
     ['sign'],
   )
-  return crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(data))
+  return crypto.subtle.sign(
+    'HMAC',
+    cryptoKey,
+    new TextEncoder().encode(data).buffer as ArrayBuffer,
+  )
 }
 
 function getDatetime(): { datetime: string; date: string } {
@@ -82,7 +88,7 @@ async function buildAuthHeaders(
     'AWS4-HMAC-SHA256', datetime, credentialScope, await sha256(canonicalRequest),
   ].join('\n')
 
-  const kDate = await hmac(new TextEncoder().encode(`AWS4${secretAccessKey}`), date)
+  const kDate = await hmac(new TextEncoder().encode(`AWS4${secretAccessKey}`).buffer as ArrayBuffer, date)
   const kRegion = await hmac(kDate, region)
   const kService = await hmac(kRegion, 's3')
   const kSigning = await hmac(kService, 'aws4_request')
