@@ -31,8 +31,13 @@ export interface LocalDatabaseAdapter {
 
 export interface RemoteRepositoryAdapter {
   getRemoteManifest: () => Promise<SyncMetadata[]>
-  uploadFile: (path: string, content: ArrayBuffer, currentHash?: string) => Promise<{ hash: string }>
-  downloadFile: (path: string) => Promise<ArrayBuffer>
+  uploadFile: (
+    meta: SyncMetadata,
+    content: ArrayBuffer,
+  ) => Promise<SyncMetadata>
+  downloadFile: (
+    path: string,
+  ) => Promise<{ content: ArrayBuffer; meta: SyncMetadata }>
   deleteFile: (path: string) => Promise<void>
 }
 

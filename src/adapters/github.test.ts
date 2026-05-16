@@ -51,14 +51,15 @@ describe('uploadFile()', () => {
     mockFetch((url, init) => {
       if (init?.method === 'PUT') {
         capturedBody = JSON.parse(init.body as string)
-        return { content: { sha: 'new-sha' } }
+        return { content: { sha: 'new-sha' }, commit: { committer: { date: '2024-01-01T00:00:00Z' } } }
       }
       return { status: 404, ok: false }
     })
     const adapter = createGitHubAdapter(OPTS)
     const buf = new TextEncoder().encode('{"text":"hello"}').buffer as ArrayBuffer
-    const result = await adapter.uploadFile('notes/a.json', buf)
-    expect(result).toEqual({ hash: 'new-sha' })
+    const result = await adapter.uploadFile({ path: 'notes/a.json', hash: '', updatedAt: 0 }, buf)
+    expect(result.hash).toBe('new-sha')
+    expect(result.path).toBe('notes/a.json')
     const body = capturedBody as unknown as Record<string, unknown>
     expect(body.content).toBe(btoa('{"text":"hello"}'))
     expect(body.branch).toBe('main')
@@ -72,8 +73,10 @@ describe('downloadFile()', () => {
       encoding: 'base64',
     }))
     const adapter = createGitHubAdapter(OPTS)
-    const data = await adapter.downloadFile('notes/a.json')
-    expect(new TextDecoder().decode(data)).toBe(JSON.stringify({ text: 'hello' }))
+    const { content, meta } = await adapter.downloadFile('notes/a.json')
+    expect(new TextDecoder().decode(content)).toBe(JSON.stringify({ text: 'hello' }))
+    expect(meta.path).toBe('notes/a.json')
+    expect(typeof meta.hash).toBe('string')
   })
 })
 

@@ -109,16 +109,17 @@ describe('uploadFile()', () => {
     })
     const adapter = createWebDAVAdapter(OPTS)
     const content = new TextEncoder().encode('hello').buffer as ArrayBuffer
-    const result = await adapter.uploadFile('notes/a.json', content)
-    expect(result).toEqual({ hash: 'new-etag' })
+    const result = await adapter.uploadFile({ path: 'notes/a.json', hash: '', updatedAt: 0 }, content)
+    expect(result.hash).toBe('new-etag')
+    expect(result.path).toBe('notes/a.json')
   })
 
   it('falls back to currentHash when HEAD returns no ETag', async () => {
     mockFetch(() => ({ ok: true, status: 200, headers: {} }))
     const adapter = createWebDAVAdapter(OPTS)
     const content = new ArrayBuffer(0)
-    const result = await adapter.uploadFile('notes/a.json', content, 'fallback-hash')
-    expect(result).toEqual({ hash: 'fallback-hash' })
+    const result = await adapter.uploadFile({ path: 'notes/a.json', hash: 'fallback-hash', updatedAt: 0 }, content)
+    expect(result.hash).toBe('fallback-hash')
   })
 })
 
@@ -127,8 +128,10 @@ describe('downloadFile()', () => {
     const body = '{"hello":"world"}'
     mockFetch(() => ({ ok: true, status: 200, body }))
     const adapter = createWebDAVAdapter(OPTS)
-    const result = await adapter.downloadFile('notes/a.json')
-    expect(new TextDecoder().decode(result)).toBe(body)
+    const { content, meta } = await adapter.downloadFile('notes/a.json')
+    expect(new TextDecoder().decode(content)).toBe(body)
+    expect(meta.path).toBe('notes/a.json')
+    expect(typeof meta.hash).toBe('string')
   })
 })
 

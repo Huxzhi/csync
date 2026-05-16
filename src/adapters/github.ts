@@ -38,8 +38,8 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): RemoteReposi
     return res.json() as Promise<T>
   }
 
-  function remotePath(path: string): string {
-    return `${basePath}/${path}`
+  function joinPath(path: string): string {
+    return basePath ? `${basePath}/${path}` : path
   }
 
   return {
@@ -53,7 +53,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): RemoteReposi
         `git/trees/${treeSha}?recursive=1`,
       )
 
-      const prefix = `${basePath}/`
+      const prefix = basePath ? `${basePath}/` : ''
       return treeData.tree
         .filter((item): item is GitTreeItem & { type: 'blob' } =>
           item.type === 'blob' && item.path.startsWith(prefix),
@@ -65,8 +65,9 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): RemoteReposi
         }))
     },
 
-    async uploadFile(path: string, content: ArrayBuffer, currentHash?: string): Promise<{ hash: string }> {
-      const apiPath = remotePath(path)
+    async uploadFile(meta: SyncMetadata, content: ArrayBuffer): Promise<SyncMetadata> {
+      const { path, hash: currentHash } = meta
+      const apiPath = joinPath(path)
 
       let existingSha: string | undefined
       if (currentHash) {
@@ -91,26 +92,44 @@ export function createGitHubAdapter(options: GitHubAdapterOptions): RemoteReposi
       }
       if (existingSha !== undefined) body.sha = existingSha
 
-      const result = await apiFetch<{ content: { sha: string } }>(`contents/${apiPath}`, {
+      const result = await apiFetch<{
+        content: { sha: string }
+        commit: { committer: { date: string } }
+      }>(`contents/${apiPath}`, {
         method: 'PUT',
         body: JSON.stringify(body),
       })
 
-      return { hash: result.content.sha }
+      return {
+        path,
+        hash: result.content.sha,
+        updatedAt: new Date(result.commit.committer.date).getTime(),
+      }
     },
 
-    async downloadFile(path: string): Promise<ArrayBuffer> {
-      const data = await apiFetch<{ content: string; encoding: string }>(
-        `contents/${remotePath(path)}`,
-      )
+    async downloadFile(path: string): Promise<{ content: ArrayBuffer; meta: SyncMetadata }> {
+      const res = await fetch(`${BASE}/contents/${joinPath(path)}`, { headers: defaultHeaders })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        throw new Error(`GitHub API ${res.status}: ${body}`)
+      }
+      const data = await res.json() as { sha: string; content: string; encoding: string }
+      const lastModified = res.headers.get('last-modified')
       const binary = atob(data.content.replace(/\n/g, ''))
       const bytes = new Uint8Array(binary.length)
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-      return bytes.buffer
+      return {
+        content: bytes.buffer as ArrayBuffer,
+        meta: {
+          path,
+          hash: data.sha,
+          updatedAt: lastModified ? new Date(lastModified).getTime() : Date.now(),
+        },
+      }
     },
 
     async deleteFile(path: string): Promise<void> {
-      const apiPath = remotePath(path)
+      const apiPath = joinPath(path)
       const existing = await apiFetch<{ sha: string }>(`contents/${apiPath}`)
       await apiFetch(`contents/${apiPath}`, {
         method: 'DELETE',

@@ -19,9 +19,9 @@ export function createWebDAVAdapter(options: WebDAVAdapterOptions): RemoteReposi
   const { baseUrl, username, password, basePath = 'data' } = options
 
   const authHeader = `Basic ${btoa(`${username}:${password}`)}`
-  const baseUrlPath = new URL(baseUrl).pathname
-  const remoteBase = `${baseUrl}/${basePath}`
-  const manifestPrefix = `${baseUrlPath}/${basePath}/`
+  const baseUrlPath = new URL(baseUrl).pathname.replace(/\/$/, '')
+  const remoteBase = basePath ? `${baseUrl}/${basePath}` : baseUrl
+  const manifestPrefix = basePath ? `${baseUrlPath}/${basePath}/` : `${baseUrlPath}/`
 
   async function request(url: string, init: RequestInit = {}): Promise<Response> {
     return fetch(url, {
@@ -68,7 +68,8 @@ export function createWebDAVAdapter(options: WebDAVAdapterOptions): RemoteReposi
       return result
     },
 
-    async uploadFile(path: string, content: ArrayBuffer, currentHash?: string): Promise<{ hash: string }> {
+    async uploadFile(meta: SyncMetadata, content: ArrayBuffer): Promise<SyncMetadata> {
+      const { path, hash: currentHash } = meta
       const url = `${remoteBase}/${path}`
 
       const putRes = await request(url, {
@@ -80,15 +81,25 @@ export function createWebDAVAdapter(options: WebDAVAdapterOptions): RemoteReposi
 
       const headRes = await request(url, { method: 'HEAD' })
       const etag = stripEtag(headRes.headers.get('etag'))
-      if (etag) return { hash: etag }
-      if (currentHash) return { hash: currentHash }
+      const lastModified = headRes.headers.get('last-modified')
+      const updatedAt = lastModified ? new Date(lastModified).getTime() : Date.now()
+      if (etag) return { path, hash: etag, updatedAt }
+      if (currentHash) return { path, hash: currentHash, updatedAt }
       throw new Error(`WebDAV: server did not return ETag for ${path}`)
     },
 
-    async downloadFile(path: string): Promise<ArrayBuffer> {
+    async downloadFile(path: string): Promise<{ content: ArrayBuffer; meta: SyncMetadata }> {
       const res = await request(`${remoteBase}/${path}`)
       if (!res.ok) throw new Error(`WebDAV ${res.status}: ${await res.text().catch(() => '')}`)
-      return res.arrayBuffer()
+      const lastModified = res.headers.get('last-modified')
+      return {
+        content: await res.arrayBuffer(),
+        meta: {
+          path,
+          hash: stripEtag(res.headers.get('etag')),
+          updatedAt: lastModified ? new Date(lastModified).getTime() : Date.now(),
+        },
+      }
     },
 
     async deleteFile(path: string): Promise<void> {

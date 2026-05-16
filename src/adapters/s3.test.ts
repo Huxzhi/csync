@@ -104,8 +104,9 @@ describe('uploadFile()', () => {
     mockFetch(() => ({ ok: true, status: 200, headers: { etag: '"upload-etag"' } }))
     const adapter = createS3Adapter(OPTS)
     const content = new TextEncoder().encode('{"key":"val"}').buffer as ArrayBuffer
-    const result = await adapter.uploadFile('notes/a.json', content)
-    expect(result).toEqual({ hash: 'upload-etag' })
+    const result = await adapter.uploadFile({ path: 'notes/a.json', hash: '', updatedAt: 0 }, content)
+    expect(result.hash).toBe('upload-etag')
+    expect(result.path).toBe('notes/a.json')
   })
 
   it('sends PUT with SigV4 Authorization header', async () => {
@@ -117,7 +118,7 @@ describe('uploadFile()', () => {
       return { headers: { etag: '"e"' } }
     })
     const adapter = createS3Adapter(OPTS)
-    await adapter.uploadFile('notes/a.json', new ArrayBuffer(0))
+    await adapter.uploadFile({ path: 'notes/a.json', hash: '', updatedAt: 0 }, new ArrayBuffer(0))
     expect(capturedMethod).toBe('PUT')
     expect(capturedAuth).toMatch(/^AWS4-HMAC-SHA256/)
   })
@@ -128,8 +129,10 @@ describe('downloadFile()', () => {
     const body = 'binary content'
     mockFetch(() => ({ ok: true, status: 200, body }))
     const adapter = createS3Adapter(OPTS)
-    const result = await adapter.downloadFile('notes/a.json')
-    expect(new TextDecoder().decode(result)).toBe(body)
+    const { content, meta } = await adapter.downloadFile('notes/a.json')
+    expect(new TextDecoder().decode(content)).toBe(body)
+    expect(meta.path).toBe('notes/a.json')
+    expect(typeof meta.hash).toBe('string')
   })
 })
 

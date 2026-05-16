@@ -156,16 +156,25 @@ export function createS3Adapter(options: S3AdapterOptions): RemoteRepositoryAdap
       return all
     },
 
-    async uploadFile(path: string, content: ArrayBuffer): Promise<{ hash: string }> {
+    async uploadFile(meta: SyncMetadata, content: ArrayBuffer): Promise<SyncMetadata> {
+      const { path } = meta
       const res = await s3Fetch('PUT', `${basePath}/${path}`, {}, content)
       if (!res.ok) throw new Error(`S3 ${res.status}: ${await res.text().catch(() => '')}`)
-      return { hash: stripEtag(res.headers.get('etag')) }
+      return { path, hash: stripEtag(res.headers.get('etag')), updatedAt: Date.now() }
     },
 
-    async downloadFile(path: string): Promise<ArrayBuffer> {
+    async downloadFile(path: string): Promise<{ content: ArrayBuffer; meta: SyncMetadata }> {
       const res = await s3Fetch('GET', `${basePath}/${path}`)
       if (!res.ok) throw new Error(`S3 ${res.status}: ${await res.text().catch(() => '')}`)
-      return res.arrayBuffer()
+      const lastModified = res.headers.get('last-modified')
+      return {
+        content: await res.arrayBuffer(),
+        meta: {
+          path,
+          hash: stripEtag(res.headers.get('etag')),
+          updatedAt: lastModified ? new Date(lastModified).getTime() : Date.now(),
+        },
+      }
     },
 
     async deleteFile(path: string): Promise<void> {

@@ -29,11 +29,13 @@ export function createSyncer(config: SyncerConfig) {
     const { signal, tags } = options
     const db = await dbPromise
 
+    console.log('[csync] fetching remote manifest...')
     const [localManifest, remoteManifest, baseline] = await Promise.all([
       local.getLocalManifest(),
       remote.getRemoteManifest(),
       getBaseline(db),
     ])
+    console.log(`[csync] remote manifest: ${remoteManifest.length} file(s)`)
 
     lastRemoteMap = new Map(remoteManifest.map(m => [m.path, m]))
     lastLocalMap = new Map(localManifest.map(m => [m.path, m]))
@@ -74,30 +76,28 @@ export function createSyncer(config: SyncerConfig) {
       if (op === 'upload') {
         const data = await local.getRecordContent(path)
         if (!data) throw new Error(`No content for ${path}`)
-        const currentHash = lastLocalMap.get(path)?.hash || undefined
-        const { hash } = await remote.uploadFile(path, data, currentHash)
-        const localMeta = lastLocalMap.get(path)
-        const updatedMeta: SyncMetadata = {
-          path,
-          hash,
-          updatedAt: localMeta?.updatedAt ?? Date.now(),
-          tags: localMeta?.tags,
-        }
+        const localMeta = lastLocalMap.get(path) ?? { path, hash: '', updatedAt: 0 }
+        console.log(`[csync] uploading ${path}`)
+        const remoteMeta = await remote.uploadFile(localMeta, data)
+        console.log(`[csync] uploaded ${path} (hash: ${remoteMeta.hash})`)
+        const updatedMeta: SyncMetadata = { ...remoteMeta, tags: localMeta.tags }
         await local.upsertRecord(data, updatedMeta)
         return updatedMeta
       }
 
       if (op === 'download') {
-        const data = await remote.downloadFile(path)
-        const remoteMeta = lastRemoteMap.get(path)
-        const hash = remoteMeta?.hash ?? ''
-        const updatedAt = remoteMeta?.updatedAt ?? Date.now()
-        const tags = remoteMeta?.tags
-        await local.upsertRecord(data, { path, hash, updatedAt, tags })
-        return { path, hash, updatedAt, tags }
+        console.log(`[csync] downloading ${path}`)
+        const { content, meta } = await remote.downloadFile(path)
+        const remoteManifestMeta = lastRemoteMap.get(path)
+        const hash = meta.hash || remoteManifestMeta?.hash || ''
+        console.log(`[csync] downloaded ${path} (hash: ${hash})`)
+        const finalMeta: SyncMetadata = { ...meta, hash, tags: remoteManifestMeta?.tags }
+        await local.upsertRecord(content, finalMeta)
+        return finalMeta
       }
 
       if (op === 'deleteRemote') {
+        console.log(`[csync] deleting remote ${path}`)
         await remote.deleteFile(path)
         return null
       }

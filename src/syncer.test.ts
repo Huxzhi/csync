@@ -43,15 +43,15 @@ function makeRemoteAdapter(
       Promise.resolve(
         [...files.entries()].map(([path, f]) => ({ path, hash: f.hash, updatedAt: 0 })),
       ),
-    uploadFile: (path, content) => {
-      const hash = `hash-${path}`
-      files.set(path, { content, hash })
-      return Promise.resolve({ hash })
+    uploadFile: (meta, content) => {
+      const hash = `hash-${meta.path}`
+      files.set(meta.path, { content, hash })
+      return Promise.resolve({ path: meta.path, hash, updatedAt: Date.now() })
     },
     downloadFile: path => {
       const f = files.get(path)
       if (!f) throw new Error(`Not found: ${path}`)
-      return Promise.resolve(f.content)
+      return Promise.resolve({ content: f.content, meta: { path, hash: f.hash, updatedAt: Date.now() } })
     },
     deleteFile: path => {
       files.delete(path)
