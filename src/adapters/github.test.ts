@@ -10,6 +10,7 @@ function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
       const body = handler(url, init)
       return {
         ok: true,
+        headers: { get: (_: string) => null },
         json: () => Promise.resolve(body),
         text: () => Promise.resolve(JSON.stringify(body)),
       }
@@ -69,6 +70,7 @@ describe('uploadFile()', () => {
 describe('downloadFile()', () => {
   it('fetches, base64-decodes, and JSON-parses the file content', async () => {
     mockFetch(() => ({
+      sha: 'abc123',
       content: btoa(JSON.stringify({ text: 'hello' })),
       encoding: 'base64',
     }))
