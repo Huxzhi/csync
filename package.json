@@ -10,6 +10,14 @@
     "./adapters/github": {
       "import": "./dist/adapters/github.js",
       "types": "./dist/adapters/github.d.ts"
+    },
+    "./adapters/webdav": {
+      "import": "./dist/adapters/webdav.js",
+      "types": "./dist/adapters/webdav.d.ts"
+    },
+    "./adapters/s3": {
+      "import": "./dist/adapters/s3.js",
+      "types": "./dist/adapters/s3.d.ts"
     }
   },
   "main": "./dist/index.js",

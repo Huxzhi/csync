@@ -4,6 +4,8 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'adapters/github': 'src/adapters/github.ts',
+    'adapters/webdav': 'src/adapters/webdav.ts',
+    'adapters/s3': 'src/adapters/s3.ts',
   },
   format: ['esm'],
   dts: true,
