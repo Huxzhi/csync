@@ -1,6 +1,6 @@
 {
   "name": "@huxzhi/csync",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Adapter-based file sync engine for browser and edge runtimes",
   "license": "MIT",
   "author": "huxzhi",
@@ -31,8 +31,18 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
-  "files": ["dist", "README.md", "LICENSE"],
-  "keywords": ["sync", "webdav", "s3", "github", "indexeddb"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "sync",
+    "webdav",
+    "s3",
+    "github",
+    "indexeddb"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/huxzhi/csync.git"
