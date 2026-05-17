@@ -23,6 +23,25 @@ npm install @huxzhi/csync
 ```ts
 import { createSyncer } from '@huxzhi/csync'
 import { createGitHubAdapter } from '@huxzhi/csync/adapters/github'
+import type { LocalDatabaseAdapter } from '@huxzhi/csync'
+
+// Implement LocalDatabaseAdapter on top of your own IndexedDB store
+const local: LocalDatabaseAdapter = {
+  getLocalManifest: async () => {
+    // return all records as SyncMetadata[]
+    // { path, hash, updatedAt, tags? }
+    // hash === '' means the record is dirty (pending upload)
+  },
+  getRecordContent: async (path) => {
+    // return ArrayBuffer for the given path, or null if not found
+  },
+  upsertRecord: async (content, meta) => {
+    // write content + meta into local storage
+  },
+  deleteRecordPermanently: async (path) => {
+    // remove the record from local storage
+  },
+}
 
 const remote = createGitHubAdapter({
   owner: 'your-username',
