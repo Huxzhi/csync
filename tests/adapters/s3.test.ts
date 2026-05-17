@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createS3Adapter } from './s3.js'
+import { createS3Adapter } from '../../src/adapters/s3.js'
 
 const OPTS = {
   bucket: 'my-bucket',

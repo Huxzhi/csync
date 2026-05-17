@@ -30,15 +30,19 @@ export function computeDiff(
     const remoteDeleted = r === undefined && b !== undefined
 
     if (localDirty && !remoteModified && !remoteDeleted) {
-      result.upload.push(path)
+      result.upload.push(l!)
     } else if (localDeleted && !remoteModified && !remoteDeleted) {
-      result.deleteRemote.push(path)
+      result.deleteRemote.push(r!)
     } else if (!localDirty && !localDeleted && remoteModified) {
-      result.download.push(path)
+      result.download.push(r!)
     } else if (!localDirty && !localDeleted && remoteDeleted) {
-      result.deleteLocal.push(path)
+      result.deleteLocal.push(l!)
     } else if (localDirty && remoteModified) {
-      result.conflict.push({ path, local: l!, remote: r! })
+      result.conflict.push({ path, local: l!, remote: r!, baseline: b })
+    } else if (localDeleted && remoteModified) {
+      result.conflict.push({ path, local: undefined, remote: r!, baseline: b })
+    } else if (localDirty && remoteDeleted) {
+      result.conflict.push({ path, local: l!, remote: undefined, baseline: b })
     }
   }
 

@@ -1,48 +1,70 @@
 import { describe, expect, it } from 'vitest'
-import { computeDiff } from './diff.js'
-import type { SyncMetadata } from './types.js'
+import { computeDiff } from '../src/diff.js'
+import type { SyncMetadata } from '../src/types.js'
 
 function m(path: string, hash: string, tags?: string[]): SyncMetadata {
   return { path, hash, updatedAt: 1000, tags }
 }
 
+const paths = (arr: SyncMetadata[]) => arr.map(m => m.path)
+
 describe('computeDiff — upload', () => {
   it('uploads a locally dirty record when remote is unchanged', () => {
     const diff = computeDiff([m('a.json', '')], [m('a.json', 'h1')], [m('a.json', 'h1')])
-    expect(diff.upload).toEqual(['a.json'])
+    expect(paths(diff.upload)).toEqual(['a.json'])
     expect(diff.download).toEqual([])
   })
 
   it('uploads a new local dirty record not present anywhere else', () => {
     const diff = computeDiff([m('new.json', '')], [], [])
-    expect(diff.upload).toEqual(['new.json'])
+    expect(paths(diff.upload)).toEqual(['new.json'])
+  })
+
+  it('carries local SyncMetadata including tags', () => {
+    const diff = computeDiff([m('a.json', '', ['work'])], [m('a.json', 'h1')], [m('a.json', 'h1')])
+    expect(diff.upload[0].tags).toEqual(['work'])
   })
 })
 
 describe('computeDiff — download', () => {
   it('downloads a remotely changed record when local is clean', () => {
     const diff = computeDiff([m('a.json', 'h1')], [m('a.json', 'h2')], [m('a.json', 'h1')])
-    expect(diff.download).toEqual(['a.json'])
+    expect(paths(diff.download)).toEqual(['a.json'])
     expect(diff.upload).toEqual([])
   })
 
   it('downloads a new remote record not present in baseline or local', () => {
     const diff = computeDiff([], [m('remote.json', 'h1')], [])
-    expect(diff.download).toEqual(['remote.json'])
+    expect(paths(diff.download)).toEqual(['remote.json'])
+  })
+
+  it('carries remote SyncMetadata including tags', () => {
+    const diff = computeDiff([], [m('a.json', 'h1', ['personal'])], [])
+    expect(diff.download[0].tags).toEqual(['personal'])
   })
 })
 
 describe('computeDiff — deleteRemote', () => {
   it('queues remote delete when record was deleted locally and remote is unchanged', () => {
     const diff = computeDiff([], [m('a.json', 'h1')], [m('a.json', 'h1')])
-    expect(diff.deleteRemote).toEqual(['a.json'])
+    expect(paths(diff.deleteRemote)).toEqual(['a.json'])
+  })
+
+  it('carries remote SyncMetadata so commit can apply tag filtering', () => {
+    const diff = computeDiff([], [m('a.json', 'h1', ['personal'])], [m('a.json', 'h1')])
+    expect(diff.deleteRemote[0].tags).toEqual(['personal'])
   })
 })
 
 describe('computeDiff — deleteLocal', () => {
   it('queues local delete when remote deleted a clean local record', () => {
     const diff = computeDiff([m('a.json', 'h1')], [], [m('a.json', 'h1')])
-    expect(diff.deleteLocal).toEqual(['a.json'])
+    expect(paths(diff.deleteLocal)).toEqual(['a.json'])
+  })
+
+  it('carries local SyncMetadata so commit can apply tag filtering', () => {
+    const diff = computeDiff([m('a.json', 'h1', ['work'])], [], [m('a.json', 'h1')])
+    expect(diff.deleteLocal[0].tags).toEqual(['work'])
   })
 })
 
@@ -51,8 +73,27 @@ describe('computeDiff — conflict', () => {
     const diff = computeDiff([m('a.json', '')], [m('a.json', 'h2')], [m('a.json', 'h1')])
     expect(diff.conflict).toHaveLength(1)
     expect(diff.conflict[0].path).toBe('a.json')
-    expect(diff.conflict[0].local.hash).toBe('')
-    expect(diff.conflict[0].remote.hash).toBe('h2')
+    expect(diff.conflict[0].local?.hash).toBe('')
+    expect(diff.conflict[0].remote?.hash).toBe('h2')
+    expect(diff.conflict[0].baseline?.hash).toBe('h1')
+  })
+
+  it('marks conflict when local deleted but remote modified', () => {
+    const diff = computeDiff([], [m('a.json', 'h2')], [m('a.json', 'h1')])
+    expect(diff.conflict).toHaveLength(1)
+    expect(diff.conflict[0].path).toBe('a.json')
+    expect(diff.conflict[0].local).toBeUndefined()
+    expect(diff.conflict[0].remote?.hash).toBe('h2')
+    expect(diff.conflict[0].baseline?.hash).toBe('h1')
+  })
+
+  it('marks conflict when local modified but remote deleted', () => {
+    const diff = computeDiff([m('a.json', '')], [], [m('a.json', 'h1')])
+    expect(diff.conflict).toHaveLength(1)
+    expect(diff.conflict[0].path).toBe('a.json')
+    expect(diff.conflict[0].local?.hash).toBe('')
+    expect(diff.conflict[0].remote).toBeUndefined()
+    expect(diff.conflict[0].baseline?.hash).toBe('h1')
   })
 })
 
@@ -79,8 +120,8 @@ describe('computeDiff — multi-record', () => {
     const remote = [m('upload.json', 'h1'), m('clean.json', 'h1'), m('dl.json', 'h2')]
     const baseline = [m('upload.json', 'h1'), m('clean.json', 'h1'), m('dl.json', 'h1')]
     const diff = computeDiff(local, remote, baseline)
-    expect(diff.upload).toEqual(['upload.json'])
-    expect(diff.download).toEqual(['dl.json'])
+    expect(paths(diff.upload)).toEqual(['upload.json'])
+    expect(paths(diff.download)).toEqual(['dl.json'])
     expect(diff.deleteRemote).toEqual([])
     expect(diff.deleteLocal).toEqual([])
     expect(diff.conflict).toEqual([])

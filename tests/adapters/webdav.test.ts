@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createWebDAVAdapter } from './webdav.js'
+import { createWebDAVAdapter } from '../../src/adapters/webdav.js'
 
 const OPTS = {
   baseUrl: 'https://cloud.example.com/remote.php/dav/files/user',

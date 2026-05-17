@@ -6,11 +6,16 @@ export interface SyncMetadata {
 }
 
 export interface DiffResult {
-  upload: string[]
-  download: string[]
-  deleteRemote: string[]
-  deleteLocal: string[]
-  conflict: { path: string; local: SyncMetadata; remote: SyncMetadata }[]
+  upload: SyncMetadata[]        // local metadata of files to upload
+  download: SyncMetadata[]      // remote metadata of files to download
+  deleteRemote: SyncMetadata[]  // remote metadata of files to delete from remote
+  deleteLocal: SyncMetadata[]   // local metadata of files to delete locally
+  conflict: {
+    path: string
+    local: SyncMetadata | undefined    // undefined = locally deleted
+    remote: SyncMetadata | undefined   // undefined = remotely deleted
+    baseline: SyncMetadata | undefined
+  }[]
 }
 
 export interface SyncSummary {
@@ -39,6 +44,7 @@ export interface RemoteRepositoryAdapter {
     path: string,
   ) => Promise<{ content: ArrayBuffer; meta: SyncMetadata }>
   deleteFile: (path: string) => Promise<void>
+  resolveTags?: (path: string, hash: string, updatedAt: number) => string[] | undefined
 }
 
 export interface SyncerConfig {
@@ -50,12 +56,25 @@ export interface SyncerConfig {
   maxRetries?: number
 }
 
+export type ConflictResolution = 'local' | 'remote' | 'skip'
+
+export type ConflictStrategy =
+  | ConflictResolution
+  | 'newer'
+  | ((conflict: {
+      path: string
+      local: SyncMetadata | undefined
+      remote: SyncMetadata | undefined
+      baseline: SyncMetadata | undefined
+    }) => ConflictResolution)
+
 export interface PrepareOptions {
   signal?: AbortSignal
-  tags?: string[]
+  onConflict?: ConflictStrategy
 }
 
 export interface CommitOptions {
   signal?: AbortSignal
+  tags?: string[]
   onProgress?: (completed: number, total: number) => void
 }

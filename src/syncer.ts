@@ -2,11 +2,12 @@ import type {
   SyncerConfig,
   PrepareOptions,
   CommitOptions,
+  ConflictResolution,
   DiffResult,
   SyncSummary,
   SyncMetadata,
 } from './types.js'
-import { openStore, getBaseline, saveBaseline } from './store.js'
+import { openStore, getBaseline, upsertBaselineEntry, removeBaselineEntry } from './store.js'
 import { computeDiff } from './diff.js'
 import { runWithConcurrency } from './queue.js'
 
@@ -22,11 +23,9 @@ export function createSyncer(config: SyncerConfig) {
   const maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES
 
   const dbPromise = openStore(dbName)
-  let lastRemoteMap = new Map<string, SyncMetadata>()
-  let lastLocalMap = new Map<string, SyncMetadata>()
 
   async function prepare(options: PrepareOptions = {}): Promise<DiffResult> {
-    const { signal, tags } = options
+    const { signal, onConflict = 'skip' } = options
     const db = await dbPromise
 
     console.log('[csync] fetching remote manifest...')
@@ -37,78 +36,115 @@ export function createSyncer(config: SyncerConfig) {
     ])
     console.log(`[csync] remote manifest: ${remoteManifest.length} file(s)`)
 
-    lastRemoteMap = new Map(remoteManifest.map(m => [m.path, m]))
-    lastLocalMap = new Map(localManifest.map(m => [m.path, m]))
-
-    let filteredLocal = localManifest
-    let filteredRemote = remoteManifest
-    let filteredBaseline = baseline
-
-    if (tags && tags.length > 0) {
-      const tagSet = new Set(tags)
-      filteredLocal = localManifest.filter(m => m.tags?.some(t => tagSet.has(t)))
-      filteredRemote = remoteManifest.filter(m => m.tags?.some(t => tagSet.has(t)))
-      filteredBaseline = baseline.filter(m => m.tags?.some(t => tagSet.has(t)))
-    }
+    const enrichedRemote = remote.resolveTags
+      ? remoteManifest.map(m => ({ ...m, tags: remote.resolveTags!(m.path, m.hash, m.updatedAt) ?? m.tags }))
+      : remoteManifest
 
     if (signal?.aborted) throw new Error('Aborted')
 
-    return computeDiff(filteredLocal, filteredRemote, filteredBaseline)
+    let diff = computeDiff(localManifest, enrichedRemote, baseline)
+
+    if (onConflict === 'skip' || diff.conflict.length === 0) return diff
+
+    const resolveOne = (c: { path: string; local: SyncMetadata | undefined; remote: SyncMetadata | undefined; baseline: SyncMetadata | undefined }): ConflictResolution => {
+      if (typeof onConflict === 'function') return onConflict(c)
+      if (onConflict === 'newer') {
+        if (c.local === undefined) return 'remote'
+        if (c.remote === undefined) return 'local'
+        return c.local.updatedAt >= c.remote.updatedAt ? 'local' : 'remote'
+      }
+      return onConflict
+    }
+
+    const upload = [...diff.upload]
+    const download = [...diff.download]
+    const deleteRemote = [...diff.deleteRemote]
+    const deleteLocal = [...diff.deleteLocal]
+    const conflict: DiffResult['conflict'] = []
+
+    for (const c of diff.conflict) {
+      const resolution = resolveOne(c)
+      if (resolution === 'local') {
+        if (c.local !== undefined) upload.push(c.local)
+        else if (c.remote !== undefined) deleteRemote.push(c.remote)
+      } else if (resolution === 'remote') {
+        if (c.remote !== undefined) download.push(c.remote)
+        else if (c.local !== undefined) deleteLocal.push(c.local)
+      } else {
+        conflict.push(c)
+      }
+    }
+
+    return { upload, download, deleteRemote, deleteLocal, conflict }
   }
 
   async function commit(diff: DiffResult, options: CommitOptions = {}): Promise<SyncSummary> {
-    const { signal, onProgress } = options
+    const { signal, tags, onProgress } = options
     const db = await dbPromise
-    const baseline = await getBaseline(db)
-    const baselineMap = new Map(baseline.map(m => [m.path, m]))
 
-    type TaskMeta = { op: 'upload' | 'download' | 'deleteRemote' | 'deleteLocal' | 'conflict'; path: string }
+    let activeDiff = diff
+    if (tags && tags.length > 0) {
+      const tagSet = new Set(tags)
+      const hasTag = (m: SyncMetadata) => m.tags?.some(t => tagSet.has(t)) ?? false
+      activeDiff = {
+        upload: diff.upload.filter(hasTag),
+        download: diff.download.filter(hasTag),
+        deleteRemote: diff.deleteRemote.filter(hasTag),
+        deleteLocal: diff.deleteLocal.filter(hasTag),
+        conflict: diff.conflict.filter(c =>
+          (c.local && hasTag(c.local)) || (c.remote && hasTag(c.remote)) || (c.baseline && hasTag(c.baseline))
+        ),
+      }
+    }
+
+    type TaskMeta =
+      | { op: 'upload'; meta: SyncMetadata }
+      | { op: 'download'; meta: SyncMetadata }
+      | { op: 'deleteRemote'; meta: SyncMetadata }
+      | { op: 'deleteLocal'; meta: SyncMetadata }
+
     const taskMetas: TaskMeta[] = []
+    for (const meta of activeDiff.upload) taskMetas.push({ op: 'upload', meta })
+    for (const meta of activeDiff.download) taskMetas.push({ op: 'download', meta })
+    for (const meta of activeDiff.deleteRemote) taskMetas.push({ op: 'deleteRemote', meta })
+    for (const meta of activeDiff.deleteLocal) taskMetas.push({ op: 'deleteLocal', meta })
 
-    for (const path of diff.upload) taskMetas.push({ op: 'upload', path })
-    for (const path of diff.download) taskMetas.push({ op: 'download', path })
-    for (const path of diff.deleteRemote) taskMetas.push({ op: 'deleteRemote', path })
-    for (const path of diff.deleteLocal) taskMetas.push({ op: 'deleteLocal', path })
-    for (const { path } of diff.conflict) taskMetas.push({ op: 'conflict', path })
-
-    // Returns updated SyncMetadata on success, null on delete, throws on error
-    const tasks = taskMetas.map(({ op, path }) => async (): Promise<SyncMetadata | null> => {
-      if (op === 'upload') {
-        const data = await local.getRecordContent(path)
-        if (!data) throw new Error(`No content for ${path}`)
-        const localMeta = lastLocalMap.get(path) ?? { path, hash: '', updatedAt: 0 }
-        console.log(`[csync] uploading ${path}`)
-        const remoteMeta = await remote.uploadFile(localMeta, data)
-        console.log(`[csync] uploaded ${path} (hash: ${remoteMeta.hash})`)
-        const updatedMeta: SyncMetadata = { ...remoteMeta, tags: localMeta.tags }
+    const tasks = taskMetas.map((taskMeta) => async (): Promise<void> => {
+      if (taskMeta.op === 'upload') {
+        const { meta } = taskMeta
+        const data = await local.getRecordContent(meta.path)
+        if (!data) throw new Error(`No content for ${meta.path}`)
+        console.log(`[csync] uploading ${meta.path}`)
+        const remoteMeta = await remote.uploadFile(meta, data)
+        console.log(`[csync] uploaded ${meta.path} (hash: ${remoteMeta.hash})`)
+        const updatedMeta: SyncMetadata = { ...remoteMeta, tags: meta.tags }
         await local.upsertRecord(data, updatedMeta)
-        return updatedMeta
+        await upsertBaselineEntry(db, updatedMeta)
+        return
       }
 
-      if (op === 'download') {
-        console.log(`[csync] downloading ${path}`)
-        const { content, meta } = await remote.downloadFile(path)
-        const remoteManifestMeta = lastRemoteMap.get(path)
-        const hash = meta.hash || remoteManifestMeta?.hash || ''
-        console.log(`[csync] downloaded ${path} (hash: ${hash})`)
-        const finalMeta: SyncMetadata = { ...meta, hash, tags: remoteManifestMeta?.tags }
+      if (taskMeta.op === 'download') {
+        const { meta } = taskMeta
+        console.log(`[csync] downloading ${meta.path}`)
+        const { content, meta: fetchedMeta } = await remote.downloadFile(meta.path)
+        const hash = fetchedMeta.hash || meta.hash || ''
+        console.log(`[csync] downloaded ${meta.path} (hash: ${hash})`)
+        const finalMeta: SyncMetadata = { ...fetchedMeta, hash, tags: meta.tags }
         await local.upsertRecord(content, finalMeta)
-        return finalMeta
+        await upsertBaselineEntry(db, finalMeta)
+        return
       }
 
-      if (op === 'deleteRemote') {
-        console.log(`[csync] deleting remote ${path}`)
-        await remote.deleteFile(path)
-        return null
+      if (taskMeta.op === 'deleteRemote') {
+        console.log(`[csync] deleting remote ${taskMeta.meta.path}`)
+        await remote.deleteFile(taskMeta.meta.path)
+        await removeBaselineEntry(db, taskMeta.meta.path)
+        return
       }
 
-      if (op === 'deleteLocal') {
-        await local.deleteRecordPermanently(path)
-        return null
-      }
-
-      // conflict — skip, no-op
-      return baselineMap.get(path) ?? null
+      // deleteLocal
+      await local.deleteRecordPermanently(taskMeta.meta.path)
+      await removeBaselineEntry(db, taskMeta.meta.path)
     })
 
     const results = await runWithConcurrency(tasks, { concurrency, timeout, maxRetries, signal, onProgress })
@@ -118,49 +154,25 @@ export function createSyncer(config: SyncerConfig) {
       downloaded: [],
       deletedRemote: [],
       deletedLocal: [],
-      skippedConflicts: [],
+      skippedConflicts: activeDiff.conflict.map(c => c.path),
       failed: [],
     }
 
-    const newBaselineEntries: SyncMetadata[] = []
-    const removedPaths = new Set<string>()
-
     for (let i = 0; i < taskMetas.length; i++) {
-      const { op, path } = taskMetas[i]
+      const taskMeta = taskMetas[i]
       const result = results[i]
+      const path = taskMeta.meta.path
 
       if (result.status === 'rejected') {
-        if (op !== 'conflict') summary.failed.push({ path, reason: result.reason })
+        summary.failed.push({ path, reason: result.reason })
         continue
       }
 
-      const meta = result.value
-
-      if (op === 'conflict') {
-        summary.skippedConflicts.push(path)
-        if (meta) newBaselineEntries.push(meta)
-        continue
-      }
-
-      if (op === 'upload') {
-        summary.uploaded.push(path)
-        if (meta) newBaselineEntries.push(meta)
-      } else if (op === 'download') {
-        summary.downloaded.push(path)
-        if (meta) newBaselineEntries.push(meta)
-      } else if (op === 'deleteRemote') {
-        summary.deletedRemote.push(path)
-        removedPaths.add(path)
-      } else if (op === 'deleteLocal') {
-        summary.deletedLocal.push(path)
-        removedPaths.add(path)
-      }
+      if (taskMeta.op === 'upload') summary.uploaded.push(path)
+      else if (taskMeta.op === 'download') summary.downloaded.push(path)
+      else if (taskMeta.op === 'deleteRemote') summary.deletedRemote.push(path)
+      else if (taskMeta.op === 'deleteLocal') summary.deletedLocal.push(path)
     }
-
-    // Rebuild baseline: keep unchanged entries, replace updated ones, remove deleted ones
-    const updatedPaths = new Set(newBaselineEntries.map(m => m.path))
-    const keptBaseline = baseline.filter(m => !updatedPaths.has(m.path) && !removedPaths.has(m.path))
-    await saveBaseline(db, [...keptBaseline, ...newBaselineEntries])
 
     return summary
   }

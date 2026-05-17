@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { runWithConcurrency } from './queue.js'
+import { runWithConcurrency } from '../src/queue.js'
 
 beforeEach(() => {
   vi.useRealTimers()

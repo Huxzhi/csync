@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createGitHubAdapter } from './github.js'
+import { createGitHubAdapter } from '../../src/adapters/github.js'
 
 const OPTS = { owner: 'alice', repo: 'vault', branch: 'main', token: 'tok', basePath: 'data' }
 
