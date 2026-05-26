@@ -15,6 +15,7 @@ npm install @huxzhi/csync
 | `@huxzhi/csync/adapters/github` | GitHub Contents API |
 | `@huxzhi/csync/adapters/webdav` | WebDAV (Nextcloud, etc.) |
 | `@huxzhi/csync/adapters/s3` | S3-compatible (AWS, Cloudflare R2, etc.) |
+| `@huxzhi/csync/adapters/localfs` | Browser File System Access API |
 
 ## Usage
 
@@ -130,6 +131,28 @@ const diff = await syncer.prepare({ signal: controller.signal })
 const summary = await syncer.commit(diff, { signal: controller.signal })
 
 controller.abort() // cancels in-flight tasks
+```
+
+### Local file system sync (browser)
+
+Sync IndexedDB records to a local folder the user picks with the browser's File System Access API. SHA-256 hashes are cached in IndexedDB so unchanged files are skipped on subsequent syncs.
+
+```ts
+import { createSyncer } from '@huxzhi/csync'
+import { createLocalFSAdapter } from '@huxzhi/csync/adapters/localfs'
+
+const handle = await showDirectoryPicker()
+const remote = createLocalFSAdapter({ handle })
+
+const syncer = createSyncer({ local, remote })
+const diff = await syncer.prepare()
+const summary = await syncer.commit(diff)
+```
+
+Pass `basePath` to scope the adapter to a subdirectory inside the chosen folder:
+
+```ts
+const remote = createLocalFSAdapter({ handle, basePath: 'data' })
 ```
 
 ## API
