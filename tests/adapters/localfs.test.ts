@@ -97,7 +97,7 @@ describe('getRemoteManifest()', () => {
     expect(manifest[0].updatedAt).toBe(3000)
   })
 
-  it.skip('returns cached hash when lastModified and size match after a download', async () => {
+  it('returns cached hash when lastModified and size match after a download', async () => {
     const fh = makeFileHandle('a.json', 'hello', 1000)
     const root = makeDirHandle('root', new Map([['a.json', fh]]))
     const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-manifest-3' })
@@ -123,5 +123,49 @@ describe('getRemoteManifest()', () => {
     const manifest = await adapter.getRemoteManifest()
     expect(manifest).toHaveLength(1)
     expect(manifest[0].path).toBe('note.json')
+  })
+})
+
+// ── downloadFile() ────────────────────────────────────────────────────────────
+
+describe('downloadFile()', () => {
+  it('reads file content and returns SHA-256 hash with mtime', async () => {
+    const fh = makeFileHandle('a.json', 'hello world', 5000)
+    const root = makeDirHandle('root', new Map([['a.json', fh]]))
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-dl-1' })
+    const { content, meta } = await adapter.downloadFile('a.json')
+    expect(new TextDecoder().decode(content)).toBe('hello world')
+    expect(meta.path).toBe('a.json')
+    expect(meta.hash).toHaveLength(64)
+    expect(meta.hash).toMatch(/^[0-9a-f]+$/)
+    expect(meta.updatedAt).toBe(5000)
+  })
+
+  it('navigates nested paths', async () => {
+    const fh = makeFileHandle('note.json', 'data', 1000)
+    const sub = makeDirHandle('notes', new Map([['note.json', fh]]))
+    const root = makeDirHandle('root', new Map([['notes', sub]]))
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-dl-2' })
+    const { meta } = await adapter.downloadFile('notes/note.json')
+    expect(meta.path).toBe('notes/note.json')
+  })
+
+  it('navigates into basePath for the file', async () => {
+    const fh = makeFileHandle('note.json', 'data', 1000)
+    const sub = makeDirHandle('data', new Map([['note.json', fh]]))
+    const root = makeDirHandle('root', new Map([['data', sub]]))
+    const adapter = createLocalFSAdapter({ handle: asDir(root), basePath: 'data', dbName: 'test-dl-3' })
+    const { meta } = await adapter.downloadFile('note.json')
+    expect(meta.path).toBe('note.json')
+  })
+
+  it('hash is deterministic — same content same hash', async () => {
+    const fh1 = makeFileHandle('a.json', 'same', 1000)
+    const fh2 = makeFileHandle('b.json', 'same', 2000)
+    const root = makeDirHandle('root', new Map([['a.json', fh1], ['b.json', fh2]]))
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-dl-4' })
+    const { meta: m1 } = await adapter.downloadFile('a.json')
+    const { meta: m2 } = await adapter.downloadFile('b.json')
+    expect(m1.hash).toBe(m2.hash)
   })
 })

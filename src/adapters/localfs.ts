@@ -136,7 +136,15 @@ export function createLocalFSAdapter(options: LocalFSAdapterOptions): RemoteRepo
       return results
     },
 
-    downloadFile: async () => { throw new Error('not implemented') },
+    async downloadFile(path: string): Promise<{ content: ArrayBuffer; meta: SyncMetadata }> {
+      const cache = await getDb()
+      const fileHandle = await resolveFileHandle(handle, toSegments(path), false)
+      const file = await fileHandle.getFile()
+      const content = await file.arrayBuffer()
+      const hash = await sha256hex(content)
+      await setCacheEntry(cache, { path, lastModified: file.lastModified, size: file.size, hash })
+      return { content, meta: { path, hash, updatedAt: file.lastModified } }
+    },
     uploadFile: async () => { throw new Error('not implemented') },
     deleteFile: async () => { throw new Error('not implemented') },
   }
