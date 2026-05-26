@@ -156,6 +156,12 @@ export function createLocalFSAdapter(options: LocalFSAdapterOptions): RemoteRepo
       await setCacheEntry(cache, { path: meta.path, lastModified: file.lastModified, size: file.size, hash })
       return { path: meta.path, hash, updatedAt: file.lastModified }
     },
-    deleteFile: async () => { throw new Error('not implemented') },
+    async deleteFile(path: string): Promise<void> {
+      const cache = await getDb()
+      const segments = toSegments(path)
+      const { dir, name } = await resolveParent(handle, segments)
+      await dir.removeEntry(name)
+      await deleteCacheEntry(cache, path)
+    },
   }
 }

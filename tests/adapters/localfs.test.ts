@@ -213,3 +213,42 @@ describe('uploadFile()', () => {
     expect(manifest[0].hash).toBe(uploaded.hash)
   })
 })
+
+// ── deleteFile() ──────────────────────────────────────────────────────────────
+
+describe('deleteFile()', () => {
+  it('removes the file from the directory', async () => {
+    const children = new Map<string, any>([['a.json', makeFileHandle('a.json', 'content')]])
+    const root = makeDirHandle('root', children)
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-del-1' })
+    await adapter.deleteFile('a.json')
+    expect(children.has('a.json')).toBe(false)
+  })
+
+  it('removes a nested file from its parent directory', async () => {
+    const subChildren = new Map<string, any>([['note.json', makeFileHandle('note.json', 'x')]])
+    const sub = makeDirHandle('notes', subChildren)
+    const root = makeDirHandle('root', new Map([['notes', sub]]))
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-del-2' })
+    await adapter.deleteFile('notes/note.json')
+    expect(subChildren.has('note.json')).toBe(false)
+  })
+
+  it('throws when file does not exist', async () => {
+    const root = makeDirHandle('root', new Map())
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-del-3' })
+    await expect(adapter.deleteFile('nonexistent.json')).rejects.toThrow()
+  })
+
+  it('clears the cache entry so next manifest scan returns empty hash', async () => {
+    const fh = makeFileHandle('a.json', 'hello', 1000)
+    const children = new Map<string, any>([['a.json', fh]])
+    const root = makeDirHandle('root', children)
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-del-4' })
+    await adapter.downloadFile('a.json')
+    await adapter.deleteFile('a.json')
+    children.set('a.json', makeFileHandle('a.json', 'new', 9999))
+    const manifest = await adapter.getRemoteManifest()
+    expect(manifest[0].hash).toBe('')
+  })
+})
