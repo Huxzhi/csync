@@ -169,3 +169,47 @@ describe('downloadFile()', () => {
     expect(m1.hash).toBe(m2.hash)
   })
 })
+
+// ── uploadFile() ──────────────────────────────────────────────────────────────
+
+describe('uploadFile()', () => {
+  it('writes content and returns path + SHA-256 hash + OS mtime', async () => {
+    const fh = makeFileHandle('new.json')
+    const root = makeDirHandle('root', new Map([['new.json', fh]]))
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-ul-1' })
+    const content = new TextEncoder().encode('uploaded').buffer as ArrayBuffer
+    const result = await adapter.uploadFile({ path: 'new.json', hash: '', updatedAt: 0 }, content)
+    expect(result.path).toBe('new.json')
+    expect(result.hash).toHaveLength(64)
+    expect(result.hash).toMatch(/^[0-9a-f]+$/)
+    expect(typeof result.updatedAt).toBe('number')
+    expect(result.updatedAt).toBeGreaterThan(0)
+  })
+
+  it('creates intermediate directories for nested paths', async () => {
+    const root = makeDirHandle('root', new Map())
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-ul-2' })
+    const content = new TextEncoder().encode('x').buffer as ArrayBuffer
+    const result = await adapter.uploadFile({ path: 'notes/sub/a.json', hash: '', updatedAt: 0 }, content)
+    expect(result.path).toBe('notes/sub/a.json')
+    expect(result.hash).toHaveLength(64)
+  })
+
+  it('hash matches SHA-256 of written content', async () => {
+    const root = makeDirHandle('root', new Map())
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-ul-3' })
+    const content = new TextEncoder().encode('hello').buffer as ArrayBuffer
+    const result = await adapter.uploadFile({ path: 'f.json', hash: '', updatedAt: 0 }, content)
+    const { meta } = await adapter.downloadFile('f.json')
+    expect(result.hash).toBe(meta.hash)
+  })
+
+  it('populates the cache so next getRemoteManifest returns the hash', async () => {
+    const root = makeDirHandle('root', new Map())
+    const adapter = createLocalFSAdapter({ handle: asDir(root), dbName: 'test-ul-4' })
+    const content = new TextEncoder().encode('cached').buffer as ArrayBuffer
+    const uploaded = await adapter.uploadFile({ path: 'f.json', hash: '', updatedAt: 0 }, content)
+    const manifest = await adapter.getRemoteManifest()
+    expect(manifest[0].hash).toBe(uploaded.hash)
+  })
+})
