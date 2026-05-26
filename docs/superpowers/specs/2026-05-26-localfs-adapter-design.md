@@ -31,12 +31,14 @@ The returned object satisfies `RemoteRepositoryAdapter` and is drop-in compatibl
 
 ### `getRemoteManifest()`
 
+Metadata-only scan — no file content is read.
+
 1. Recursively traverse the directory from the handle root (depth-first via `handle.values()`), applying `basePath` prefix filter if set.
 2. For each file entry, read `file.lastModified` and `file.size`.
 3. Look up path in the IndexedDB hash cache.
    - **Cache hit** (`lastModified` and `size` both unchanged): reuse cached SHA-256 hash.
-   - **Cache miss**: read file `ArrayBuffer`, compute SHA-256 via `SubtleCrypto`, write result back to cache.
-4. Return `SyncMetadata[]` with `path` (relative to handle root, `/`-separated), `hash` (SHA-256 hex), `updatedAt` (file `lastModified` mtime).
+   - **Cache miss or stale**: return `hash: ''` — the syncer will treat the file as changed and trigger `downloadFile()`, which computes and caches the real hash.
+4. Return `SyncMetadata[]` with `path` (relative to handle root, `/`-separated), `hash` (cached SHA-256 hex or `''`), `updatedAt` (file `lastModified` mtime).
 
 ### `uploadFile(meta, content)`
 
