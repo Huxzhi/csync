@@ -21,6 +21,10 @@
     "./adapters/s3": {
       "import": "./dist/adapters/s3.js",
       "types": "./dist/adapters/s3.d.ts"
+    },
+    "./adapters/localfs": {
+      "import": "./dist/adapters/localfs.js",
+      "types": "./dist/adapters/localfs.d.ts"
     }
   },
   "main": "./dist/index.js",

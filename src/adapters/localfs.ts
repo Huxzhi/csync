@@ -61,7 +61,9 @@ async function* walkDir(
   dir: FileSystemDirectoryHandle,
   prefix: string,
 ): AsyncGenerator<{ path: string; file: File }> {
-  for await (const entry of dir.values()) {
+  // FileSystemDirectoryHandle.values() not in TS 5.4 DOM lib
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for await (const entry of (dir as any).values() as AsyncIterable<FileSystemHandle>) {
     const entryPath = prefix ? `${prefix}/${entry.name}` : entry.name
     if (entry.kind === 'directory') {
       yield* walkDir(entry as FileSystemDirectoryHandle, entryPath)
